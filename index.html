@@ -8,6 +8,35 @@
   <!-- 外部通信を遮断。connect-src 'none' で fetch/XHR/WebSocket を禁止 -->
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none';" />
   <title>totp-client-for-dev</title>
+  <meta name="description" content="ブラウザ内で完結する開発・検証用 TOTP クライアント。RFC 6238 / HMAC-SHA1 / Base32 対応。Web Crypto API で生成し、サーバー通信なし。Secret Key は localStorage にのみ保存。" />
+  <meta name="theme-color" content="#05060a" />
+  <link rel="canonical" href="https://zackey-heuristics.github.io/totp-client-for-dev/" />
+
+  <!-- Icons -->
+  <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" />
+
+  <!-- Open Graph (X / Discord / Slack 等のプレビュー用) -->
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="totp-client-for-dev" />
+  <meta property="og:title" content="totp-client-for-dev" />
+  <meta property="og:description" content="ブラウザ内で完結する開発・検証用 TOTP クライアント。RFC 6238 / HMAC-SHA1 / Base32 対応。サーバー通信なし。" />
+  <meta property="og:url" content="https://zackey-heuristics.github.io/totp-client-for-dev/" />
+  <meta property="og:image" content="https://zackey-heuristics.github.io/totp-client-for-dev/assets/ogp.png" />
+  <meta property="og:image:secure_url" content="https://zackey-heuristics.github.io/totp-client-for-dev/assets/ogp.png" />
+  <meta property="og:image:type" content="image/png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="Dev TOTP Client — 開発・検証用のブラウザ内 TOTP ジェネレーター" />
+  <meta property="og:locale" content="ja_JP" />
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="totp-client-for-dev" />
+  <meta name="twitter:description" content="ブラウザ内で完結する開発・検証用 TOTP クライアント。RFC 6238 / HMAC-SHA1 / Base32 対応。サーバー通信なし。" />
+  <meta name="twitter:image" content="https://zackey-heuristics.github.io/totp-client-for-dev/assets/ogp.png" />
+  <meta name="twitter:image:alt" content="Dev TOTP Client — 開発・検証用のブラウザ内 TOTP ジェネレーター" />
+
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>

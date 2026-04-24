@@ -1,0 +1,115 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#05060a"/>
+      <stop offset="0.45" stop-color="#0a1024"/>
+      <stop offset="1" stop-color="#0e1a3a"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.25" cy="-0.1" r="0.9">
+      <stop offset="0" stop-color="#1a2a60" stop-opacity="0.85"/>
+      <stop offset="1" stop-color="#1a2a60" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="moon" cx="0.35" cy="0.35" r="0.65">
+      <stop offset="0" stop-color="#e8f4ff" stop-opacity="0.95"/>
+      <stop offset="0.55" stop-color="#7fbcff" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#0a1024" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="title" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.7" stop-color="#a7d8ff"/>
+      <stop offset="1" stop-color="#4fc3ff"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4fc3ff" stop-opacity="0"/>
+      <stop offset="0.3" stop-color="#2ea1ff"/>
+      <stop offset="0.7" stop-color="#2ea1ff"/>
+      <stop offset="1" stop-color="#4fc3ff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="barFill" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#2ea1ff"/>
+      <stop offset="1" stop-color="#4fc3ff"/>
+    </linearGradient>
+    <filter id="blueGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="7"/>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <rect width="1200" height="630" fill="url(#glow)"/>
+
+  <!-- Moon (pushed further off canvas to avoid title collision) -->
+  <g transform="translate(1050,90)" opacity="0.55">
+    <circle cx="0" cy="0" r="200" fill="url(#moon)"/>
+    <circle cx="0" cy="0" r="200" fill="none" stroke="#7fbcff" stroke-opacity="0.3" stroke-width="1.2"/>
+    <circle cx="0" cy="0" r="140" fill="none" stroke="#7fbcff" stroke-opacity="0.18" stroke-width="0.9"/>
+  </g>
+
+  <!-- Outer notched frame -->
+  <polygon points="48,48 1130,48 1152,70 1152,582 582,582 560,560 48,560"
+           fill="none" stroke="#7fbcff" stroke-opacity="0.18" stroke-width="1"/>
+
+  <!-- Left accent bar (matches live site's panel::before) -->
+  <rect x="48" y="130" width="3" height="370" fill="url(#accent)" opacity="0.85"/>
+
+  <!-- Tag row -->
+  <g transform="translate(88,108)">
+    <rect x="0" y="0" width="230" height="38" fill="#2ea1ff" fill-opacity="0.14" stroke="#7fbcff" stroke-opacity="0.55" stroke-width="1"/>
+    <text x="115" y="25" text-anchor="middle" fill="#a7d8ff"
+          font-family="DejaVu Sans Mono, monospace" font-size="15"
+          letter-spacing="3" font-weight="700">TOTP · RFC 6238</text>
+
+    <rect x="248" y="0" width="210" height="38" fill="none" stroke="#6e87a8" stroke-opacity="0.45" stroke-width="1"/>
+    <text x="353" y="25" text-anchor="middle" fill="#6e87a8"
+          font-family="DejaVu Sans Mono, monospace" font-size="15"
+          letter-spacing="3">LOCAL · NO NETWORK</text>
+  </g>
+
+  <!-- Title (shrunk + tighter spacing so it fits with the moon) -->
+  <text x="88" y="238"
+        font-family="DejaVu Sans, sans-serif" font-weight="900"
+        font-size="86" fill="url(#title)"
+        letter-spacing="5">DEV TOTP CLIENT</text>
+
+  <!-- JP subtitle (Noto CJK) -->
+  <text x="92" y="282"
+        font-family="Noto Sans CJK JP, Noto Sans JP, sans-serif" font-weight="400"
+        font-size="22" fill="#a7c4e4"
+        letter-spacing="3">ローカル開発・検証用のブラウザ内 TOTP ジェネレーター</text>
+
+  <!-- Code label -->
+  <text x="88" y="358"
+        font-family="DejaVu Sans Mono, monospace" font-size="16"
+        fill="#6e87a8" letter-spacing="6" font-weight="700">CURRENT CODE</text>
+
+  <!-- Code (glow layer + crisp layer) -->
+  <text x="88" y="478"
+        font-family="DejaVu Sans Mono, monospace" font-weight="900"
+        font-size="140" fill="#4fc3ff" fill-opacity="0.55"
+        filter="url(#blueGlow)"
+        letter-spacing="8">849 152</text>
+  <text x="88" y="478"
+        font-family="DejaVu Sans Mono, monospace" font-weight="900"
+        font-size="140" fill="#f4fbff"
+        letter-spacing="8">849 152</text>
+
+  <!-- Linear progress bar -->
+  <rect x="88" y="502" width="900" height="5" fill="#1f2530"/>
+  <rect x="88" y="502" width="645" height="5" fill="url(#barFill)"/>
+
+  <!-- Remaining seconds -->
+  <text x="1000" y="510"
+        font-family="DejaVu Sans Mono, monospace" font-size="22"
+        fill="#a7d8ff" letter-spacing="2" font-weight="700">22s</text>
+
+  <!-- Footer spec band -->
+  <g transform="translate(88,552)">
+    <rect x="0" y="0" width="86" height="22" fill="none" stroke="#7fbcff" stroke-opacity="0.45"/>
+    <text x="43" y="16" text-anchor="middle" fill="#a7d8ff"
+          font-family="DejaVu Sans Mono, monospace" font-size="12"
+          letter-spacing="4" font-weight="700">SPEC</text>
+    <text x="100" y="16" fill="#6e87a8"
+          font-family="DejaVu Sans Mono, monospace" font-size="13"
+          letter-spacing="3">RFC 6238 · HMAC-SHA1 · BASE32 · 6 DIGITS · 30 SEC</text>
+  </g>
+</svg>

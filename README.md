@@ -10,14 +10,9 @@
 - 単一ページ構成: `index.html` + `style.css` + `app.js`
 - npm / ビルド不要、外部ネットワーク不要(CSP で `connect-src 'none'` を宣言)
 
-## GitHub Pages での公開方法
+## GitHub Pages
 
-1. このリポジトリを GitHub にプッシュします。
-2. リポジトリの **Settings → Pages** を開きます。
-3. **Source** を `Deploy from a branch` にし、ブランチ(例: `main`)と `/ (root)` を選択します。
-4. 数十秒後、`https://<username>.github.io/<repo>/` でアクセスできるようになります。
-
-Jekyll によるファイルフィルタを無効化するために、リポジトリ直下に空の `.nojekyll` を置いています。
+[https://zackey-heuristics.github.io/totp-client-for-dev/](https://zackey-heuristics.github.io/totp-client-for-dev/)
 
 ## ローカルでの確認
 
