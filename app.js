@@ -9,8 +9,8 @@
 
   const STORAGE_KEY = 'dev_totp_accounts_v1';
   const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
-  // RFC 6238 test vector key: ASCII "12345678901234567890" -> Base32
-  const DEMO_SECRET = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ';
+  // 2π × r where r = 18 (ring SVG radius)
+  const RING_CIRCUM = 113.097;
 
   // ---------- Base32 ----------
 
@@ -56,15 +56,14 @@
   }
 
   // Dynamic truncation per RFC 4226
-  function dynamicTruncate(hmacBytes, digits) {
-    const offset = hmacBytes[hmacBytes.length - 1] & 0x0f;
+  function dynamicTruncate(mac, digits) {
+    const offset = mac[mac.length - 1] & 0x0f;
     const bin =
-      ((hmacBytes[offset] & 0x7f) << 24) |
-      ((hmacBytes[offset + 1] & 0xff) << 16) |
-      ((hmacBytes[offset + 2] & 0xff) << 8) |
-      (hmacBytes[offset + 3] & 0xff);
-    const mod = Math.pow(10, digits);
-    return String(bin % mod).padStart(digits, '0');
+      ((mac[offset] & 0x7f) << 24) |
+      ((mac[offset + 1] & 0xff) << 16) |
+      ((mac[offset + 2] & 0xff) << 8) |
+      (mac[offset + 3] & 0xff);
+    return String(bin % Math.pow(10, digits)).padStart(digits, '0');
   }
 
   async function generateTOTP(secret, opts) {
@@ -81,10 +80,15 @@
     return Math.floor(time / 1000 / period);
   }
 
+  function formatCode(code) {
+    const mid = Math.ceil(code.length / 2);
+    return code.slice(0, mid) + ' ' + code.slice(mid);
+  }
+
   // ---------- otpauth:// URI ----------
 
   function parseOtpauthUri(uri) {
-    if (!uri || !uri.startsWith('otpauth://')) return null;
+    if (!uri || !/^otpauth:\/\//i.test(uri)) return null;
     let u;
     try { u = new URL(uri); } catch { return null; }
     if (u.hostname !== 'totp') return null;
@@ -106,7 +110,6 @@
     const period = parseInt(params.get('period') || '30', 10);
     const raw = (params.get('algorithm') || 'SHA1').toUpperCase();
     const algoRev = { SHA1: 'SHA-1', SHA256: 'SHA-256', SHA512: 'SHA-512' };
-    const algorithm = algoRev[raw] || 'SHA-1';
 
     return {
       secret,
@@ -114,7 +117,7 @@
       accountName,
       digits: Number.isFinite(digits) && digits > 0 ? digits : 6,
       period: Number.isFinite(period) && period > 0 ? period : 30,
-      algorithm,
+      algorithm: algoRev[raw] || 'SHA-1',
     };
   }
 
@@ -131,248 +134,160 @@
     }
   }
 
-  function saveAccounts(accounts) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(accounts));
+  function saveAccounts(list) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
   }
 
   function makeId() {
-    // Random id, not used cryptographically
     const a = new Uint8Array(8);
     crypto.getRandomValues(a);
     return Array.from(a, b => b.toString(16).padStart(2, '0')).join('');
   }
 
-  // ---------- UI ----------
+  // ---------- State ----------
 
   let accounts = [];
-  const codeCache = new Map(); // id -> { counter, code }
+  const cardRefs = new Map(); // id -> { el, refs, lastCode, lastCounter }
 
-  const $ = (sel) => document.querySelector(sel);
-  const listEl = () => $('#account-list');
-  const emptyEl = () => $('#empty-state');
-  const errorEl = () => $('#form-error');
-  const toastEl = () => $('#toast');
+  // ---------- DOM ----------
 
-  function showToast(msg, kind) {
-    const el = toastEl();
-    el.textContent = msg;
-    el.classList.remove('hidden', 'success', 'error');
-    if (kind) el.classList.add(kind);
-    el.classList.add('show');
-    clearTimeout(showToast._t);
-    showToast._t = setTimeout(() => {
-      el.classList.remove('show');
-      setTimeout(() => el.classList.add('hidden'), 220);
-    }, 1600);
+  const $ = (s, r = document) => r.querySelector(s);
+  let form, inpIssuer, inpAccount, inpSecret, btnDemo, btnClearAll;
+  let listEl, emptyEl, errEl, toastEl, tpl;
+
+  // ---------- Toast ----------
+
+  let toastTimer = null;
+  function toast(msg, opts) {
+    const error = opts && opts.error;
+    if (toastTimer) clearTimeout(toastTimer);
+    toastEl.textContent = msg;
+    toastEl.classList.toggle('is-err', !!error);
+    toastEl.classList.add('is-show');
+    toastTimer = setTimeout(() => toastEl.classList.remove('is-show'), 2000);
   }
 
   function setError(msg) {
-    errorEl().textContent = msg || '';
+    errEl.textContent = msg || '';
   }
 
-  function escapeHtml(s) {
-    return String(s == null ? '' : s)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
-  }
-
-  function formatCode(code) {
-    if (code.length === 6) return code.slice(0, 3) + ' ' + code.slice(3);
-    if (code.length === 8) return code.slice(0, 4) + ' ' + code.slice(4);
-    return code;
-  }
+  // ---------- Render ----------
 
   function renderAll() {
-    const list = listEl();
-    list.innerHTML = '';
+    listEl.innerHTML = '';
+    cardRefs.clear();
     if (accounts.length === 0) {
-      emptyEl().classList.remove('hidden');
+      emptyEl.hidden = false;
+      document.body.classList.remove('is-crit');
       return;
     }
-    emptyEl().classList.add('hidden');
-
-    for (const acc of accounts) {
-      const card = document.createElement('div');
-      card.className = 'account';
-      card.dataset.id = acc.id;
-      card.innerHTML = `
-        <div class="account-head">
-          <div class="account-title">
-            <span class="account-issuer">${escapeHtml(acc.issuer || '(no issuer)')}</span>
-            <span class="account-name">${escapeHtml(acc.accountName || '')}</span>
-          </div>
-          <div class="account-actions">
-            <button type="button" class="btn btn-sm" data-act="toggle-secret">Secret 表示</button>
-            <button type="button" class="btn btn-sm btn-danger" data-act="delete">削除</button>
-          </div>
-        </div>
-        <div class="code-row">
-          <div class="code" data-role="code" title="クリックでコピー">------</div>
-          <button type="button" class="btn btn-sm" data-act="copy">コピー</button>
-          <div class="countdown" data-role="countdown">--</div>
-        </div>
-        <div class="progress"><div class="progress-bar" data-role="bar"></div></div>
-        <div class="secret-row hidden" data-role="secret-row">
-          <span>Secret:</span>
-          <span class="secret-value" data-role="secret-value">${escapeHtml(acc.secret)}</span>
-        </div>
-      `;
-      list.appendChild(card);
-    }
-
-    // Wire up per-card actions via delegation on the list
+    emptyEl.hidden = true;
+    for (const acc of accounts) renderCard(acc);
   }
+
+  function renderCard(account) {
+    const node = tpl.content.firstElementChild.cloneNode(true);
+    node.dataset.id = account.id;
+
+    const refs = {
+      issuer: node.querySelector('[data-role="issuer"]'),
+      account: node.querySelector('[data-role="account"]'),
+      code: node.querySelector('[data-role="code"]'),
+      countdown: node.querySelector('[data-role="countdown"]'),
+      bar: node.querySelector('[data-role="bar"]'),
+      ring: node.querySelector('[data-role="ring"]'),
+      secretRow: node.querySelector('[data-role="secret-row"]'),
+      secretVal: node.querySelector('[data-role="secret-value"]'),
+      btnCopy: node.querySelector('[data-act="copy"]'),
+      btnToggle: node.querySelector('[data-act="toggle-secret"]'),
+      btnDel: node.querySelector('[data-act="delete"]'),
+    };
+
+    refs.issuer.textContent = account.issuer || '(no issuer)';
+    refs.account.textContent = account.accountName || '';
+    refs.secretVal.textContent = account.secret;
+
+    refs.btnCopy.addEventListener('click', () => copyCodeFor(account.id));
+    refs.btnToggle.addEventListener('click', () => toggleSecretFor(account.id));
+    refs.btnDel.addEventListener('click', () => deleteAccount(account.id));
+
+    listEl.appendChild(node);
+    cardRefs.set(account.id, { el: node, refs, lastCode: null, lastCounter: null });
+  }
+
+  // ---------- Tick (runs every second) ----------
 
   async function tick() {
     const now = Date.now();
-    const cards = listEl().querySelectorAll('.account');
-    for (const card of cards) {
-      const id = card.dataset.id;
-      const acc = accounts.find(a => a.id === id);
-      if (!acc) continue;
+    let anyCrit = false;
 
-      const period = acc.period || 30;
+    for (const account of accounts) {
+      const ref = cardRefs.get(account.id);
+      if (!ref) continue;
+      const { refs, el } = ref;
+
+      const period = account.period || 30;
       const elapsed = (now / 1000) % period;
       const remaining = Math.max(0, period - elapsed);
       const secLeft = Math.ceil(remaining);
-      const pct = (remaining / period) * 100;
+      const frac = remaining / period;
 
-      const countdownEl = card.querySelector('[data-role="countdown"]');
-      const barEl = card.querySelector('[data-role="bar"]');
-      const codeEl = card.querySelector('[data-role="code"]');
+      refs.countdown.textContent = secLeft + 's';
+      refs.bar.style.transform = 'scaleX(' + frac.toFixed(4) + ')';
+      refs.ring.style.strokeDasharray = RING_CIRCUM.toFixed(3);
+      refs.ring.style.strokeDashoffset = (RING_CIRCUM * (1 - frac)).toFixed(3);
 
-      countdownEl.textContent = String(secLeft) + 's';
-      countdownEl.classList.toggle('warn', secLeft <= 10 && secLeft > 5);
-      countdownEl.classList.toggle('crit', secLeft <= 5);
-      barEl.style.width = pct + '%';
-      barEl.classList.toggle('warn', secLeft <= 10 && secLeft > 5);
-      barEl.classList.toggle('crit', secLeft <= 5);
+      el.classList.toggle('is-warn', secLeft <= 10 && secLeft > 5);
+      el.classList.toggle('is-crit', secLeft <= 5);
+      if (secLeft <= 5) anyCrit = true;
 
+      // Only recompute the code when the 30s window changes
       const counter = counterFor(now, period);
-      const cached = codeCache.get(id);
-      if (cached && cached.counter === counter && cached.code) {
-        codeEl.textContent = formatCode(cached.code);
-        codeEl.classList.remove('invalid');
-        continue;
-      }
-      try {
-        const code = await generateTOTP(acc.secret, {
-          digits: acc.digits || 6,
-          period: acc.period || 30,
-          algorithm: acc.algorithm || 'SHA-1',
-          time: now,
-        });
-        codeCache.set(id, { counter, code });
-        codeEl.textContent = formatCode(code);
-        codeEl.classList.remove('invalid');
-      } catch (e) {
-        codeEl.textContent = 'Invalid: ' + (e.message || 'error');
-        codeEl.classList.add('invalid');
+      if (ref.lastCounter !== counter) {
+        try {
+          const code = await generateTOTP(account.secret, {
+            digits: account.digits || 6,
+            period,
+            algorithm: account.algorithm || 'SHA-1',
+            time: now,
+          });
+          const formatted = formatCode(code);
+          if (formatted !== ref.lastCode) {
+            refs.code.textContent = formatted;
+            if (ref.lastCode !== null) {
+              // retrigger the glitch animation on code rollover
+              el.classList.remove('is-glitch');
+              void el.offsetWidth;
+              el.classList.add('is-glitch');
+            }
+            ref.lastCode = formatted;
+          }
+          el.classList.remove('is-error');
+        } catch {
+          refs.code.textContent = 'ERROR';
+          ref.lastCode = 'ERROR';
+          el.classList.add('is-error');
+        }
+        ref.lastCounter = counter;
       }
     }
+
+    document.body.classList.toggle('is-crit', anyCrit && accounts.length > 0);
   }
 
-  // ---------- Event handlers ----------
+  // ---------- Per-card actions ----------
 
-  function onAddSubmit(ev) {
-    ev.preventDefault();
-    setError('');
-
-    const issuerInput = $('#input-issuer').value.trim();
-    const accountInput = $('#input-account').value.trim();
-    const secretInput = $('#input-secret').value.trim();
-
-    let acc;
-    const parsed = parseOtpauthUri(secretInput);
-    if (parsed) {
-      acc = {
-        id: makeId(),
-        issuer: issuerInput || parsed.issuer || '',
-        accountName: accountInput || parsed.accountName || '',
-        secret: normalizeSecret(parsed.secret),
-        digits: parsed.digits,
-        period: parsed.period,
-        algorithm: parsed.algorithm,
-        createdAt: new Date().toISOString(),
-      };
-    } else {
-      acc = {
-        id: makeId(),
-        issuer: issuerInput,
-        accountName: accountInput,
-        secret: normalizeSecret(secretInput),
-        digits: 6,
-        period: 30,
-        algorithm: 'SHA-1',
-        createdAt: new Date().toISOString(),
-      };
-    }
-
-    if (!acc.secret) {
-      setError('Secret Key を入力してください');
-      return;
-    }
-    try {
-      base32Decode(acc.secret);
-    } catch (e) {
-      setError('Secret Key が不正です: ' + e.message);
-      return;
-    }
-
-    accounts.push(acc);
-    saveAccounts(accounts);
-    renderAll();
-    tick();
-
-    $('#add-form').reset();
-    showToast('アカウントを追加しました', 'success');
-  }
-
-  function onListClick(ev) {
-    const btn = ev.target.closest('button');
-    if (!btn) {
-      // clicking the code copies it
-      const codeEl = ev.target.closest('[data-role="code"]');
-      if (codeEl) {
-        const card = codeEl.closest('.account');
-        copyCode(card);
-      }
-      return;
-    }
-    const card = btn.closest('.account');
-    if (!card) return;
-    const id = card.dataset.id;
-    const act = btn.dataset.act;
-
-    if (act === 'delete') {
-      if (!confirm('このアカウントを削除しますか?')) return;
-      accounts = accounts.filter(a => a.id !== id);
-      codeCache.delete(id);
-      saveAccounts(accounts);
-      renderAll();
-      showToast('削除しました', 'success');
-    } else if (act === 'toggle-secret') {
-      const row = card.querySelector('[data-role="secret-row"]');
-      const hidden = row.classList.toggle('hidden');
-      btn.textContent = hidden ? 'Secret 表示' : 'Secret 非表示';
-    } else if (act === 'copy') {
-      copyCode(card);
-    }
-  }
-
-  async function copyCode(card) {
-    const codeEl = card.querySelector('[data-role="code"]');
-    const raw = (codeEl.textContent || '').replace(/\s+/g, '');
-    if (!raw || codeEl.classList.contains('invalid')) {
-      showToast('コピーできるコードがありません', 'error');
+  async function copyCodeFor(id) {
+    const ref = cardRefs.get(id);
+    if (!ref) return;
+    const raw = (ref.refs.code.textContent || '').replace(/\s+/g, '');
+    if (!raw || /[•·]/.test(raw) || ref.el.classList.contains('is-error')) {
+      toast('コピーできるコードがありません', { error: true });
       return;
     }
     try {
       await navigator.clipboard.writeText(raw);
-      showToast('コピーしました', 'success');
+      toast('CODE COPIED');
     } catch {
       // Fallback for permission-restricted contexts
       try {
@@ -384,62 +299,164 @@
         ta.select();
         document.execCommand('copy');
         document.body.removeChild(ta);
-        showToast('コピーしました', 'success');
+        toast('CODE COPIED');
       } catch {
-        showToast('コピーに失敗しました', 'error');
+        toast('コピーに失敗', { error: true });
       }
     }
   }
 
-  function onClearAll() {
-    if (accounts.length === 0) {
-      showToast('削除対象がありません');
-      return;
-    }
-    if (!confirm('localStorage 内の全アカウントを削除します。よろしいですか?')) return;
-    accounts = [];
-    codeCache.clear();
-    localStorage.removeItem(STORAGE_KEY);
-    renderAll();
-    showToast('全データを削除しました', 'success');
+  function toggleSecretFor(id) {
+    const ref = cardRefs.get(id);
+    if (!ref) return;
+    const nowHidden = !ref.refs.secretRow.hidden;
+    ref.refs.secretRow.hidden = nowHidden;
+    const label = ref.refs.btnToggle.querySelector('.btn__label');
+    if (label) label.textContent = nowHidden ? 'Secret 表示' : 'Secret 非表示';
   }
 
-  function onDemo() {
-    const acc = {
+  function deleteAccount(id) {
+    if (!confirm('このアカウントを削除しますか?')) return;
+    accounts = accounts.filter(a => a.id !== id);
+    cardRefs.delete(id);
+    saveAccounts(accounts);
+    renderAll();
+    toast('ACCOUNT DELETED');
+  }
+
+  // ---------- Add flow ----------
+
+  async function addAccount({ issuer, accountName, secret }) {
+    let iss = (issuer || '').trim();
+    let acc = (accountName || '').trim();
+    let sec = (secret || '').trim();
+    let digits = 6, period = 30, algorithm = 'SHA-1';
+
+    const parsed = parseOtpauthUri(sec);
+    if (parsed) {
+      iss = iss || parsed.issuer;
+      acc = acc || parsed.accountName;
+      sec = parsed.secret;
+      digits = parsed.digits;
+      period = parsed.period;
+      algorithm = parsed.algorithm;
+    }
+
+    sec = normalizeSecret(sec);
+    if (!sec) throw new Error('Secret Key を入力してください');
+
+    // Will throw if malformed
+    base32Decode(sec);
+
+    // Probe once to confirm Web Crypto accepts the material
+    try {
+      await generateTOTP(sec, { digits, period, algorithm });
+    } catch (e) {
+      throw new Error('Secret の検証に失敗: ' + e.message);
+    }
+
+    const entry = {
       id: makeId(),
-      issuer: '[DEMO] RFC6238 Test Vector',
-      accountName: 'demo@example.com (本番では絶対に使用しない)',
-      secret: DEMO_SECRET,
-      digits: 6,
-      period: 30,
-      algorithm: 'SHA-1',
+      issuer: iss,
+      accountName: acc,
+      secret: sec,
+      digits,
+      period,
+      algorithm,
       createdAt: new Date().toISOString(),
     };
-    accounts.push(acc);
+    accounts.push(entry);
     saveAccounts(accounts);
     renderAll();
     tick();
-    showToast('デモ用サンプルを追加しました', 'success');
+    toast('ACCOUNT ADDED');
+  }
+
+  function onSubmit(ev) {
+    ev.preventDefault();
+    setError('');
+    addAccount({
+      issuer: inpIssuer.value,
+      accountName: inpAccount.value,
+      secret: inpSecret.value,
+    }).then(() => {
+      inpIssuer.value = '';
+      inpAccount.value = '';
+      inpSecret.value = '';
+    }).catch(err => {
+      setError(err.message || String(err));
+    });
+  }
+
+  function onDemo() {
+    setError('');
+    // [DEMO] prefix makes it unambiguous that these are not real credentials
+    const demos = [
+      { issuer: '[DEMO] RFC 6238', accountName: 'test-vector@example.com', secret: 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ' },
+      { issuer: '[DEMO] Service-A', accountName: 'alice@dev.local',         secret: 'JBSWY3DPEHPK3PXP' },
+      { issuer: '[DEMO] Service-B', accountName: 'bob@dev.local',           secret: 'KRSXG5CTMVRXEZLU' },
+    ];
+    const pick = demos[Math.floor(Math.random() * demos.length)];
+    const dup = accounts.find(a => a.issuer === pick.issuer && a.accountName === pick.accountName);
+    if (dup) pick.accountName = pick.accountName + '+' + Math.floor(Math.random() * 900 + 100);
+    addAccount(pick).catch(err => setError(err.message));
+  }
+
+  function onClearAll() {
+    if (accounts.length === 0) {
+      toast('何も登録されていません');
+      return;
+    }
+    if (!confirm('すべてのアカウントを削除しますか? この操作は元に戻せません。')) return;
+    accounts = [];
+    cardRefs.clear();
+    localStorage.removeItem(STORAGE_KEY);
+    renderAll();
+    toast('ALL DATA CLEARED');
+  }
+
+  // Ripple effect on primary buttons — positions the highlight at the click point
+  function onRipple(e) {
+    const btn = e.target.closest('.btn--primary');
+    if (!btn) return;
+    const r = btn.getBoundingClientRect();
+    btn.style.setProperty('--rx', ((e.clientX - r.left) / r.width * 100) + '%');
+    btn.style.setProperty('--ry', ((e.clientY - r.top) / r.height * 100) + '%');
+    btn.classList.remove('is-ripple');
+    void btn.offsetWidth;
+    btn.classList.add('is-ripple');
+    setTimeout(() => btn.classList.remove('is-ripple'), 600);
   }
 
   // ---------- Init ----------
 
   function init() {
     if (!window.crypto || !window.crypto.subtle) {
-      document.body.innerHTML = '<p style="padding:20px;color:#f87171">このブラウザは Web Crypto API をサポートしていません。</p>';
+      document.body.innerHTML = '<p style="padding:20px;color:#ff3344">このブラウザは Web Crypto API をサポートしていません。</p>';
       return;
     }
+
+    form = $('#add-form');
+    inpIssuer = $('#input-issuer');
+    inpAccount = $('#input-account');
+    inpSecret = $('#input-secret');
+    btnDemo = $('#btn-demo');
+    btnClearAll = $('#btn-clear-all');
+    listEl = $('#account-list');
+    emptyEl = $('#empty-state');
+    errEl = $('#form-error');
+    toastEl = $('#toast');
+    tpl = $('#tpl-card');
 
     accounts = loadAccounts();
     renderAll();
     tick();
 
-    $('#add-form').addEventListener('submit', onAddSubmit);
-    $('#btn-demo').addEventListener('click', onDemo);
-    $('#btn-clear-all').addEventListener('click', onClearAll);
-    listEl().addEventListener('click', onListClick);
+    form.addEventListener('submit', onSubmit);
+    btnDemo.addEventListener('click', onDemo);
+    btnClearAll.addEventListener('click', onClearAll);
+    document.addEventListener('click', onRipple);
 
-    // Update UI every second; TOTP value recomputed when counter changes.
     setInterval(tick, 1000);
   }
 
